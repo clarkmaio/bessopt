@@ -1,0 +1,132 @@
+import marimo
+
+__generated_with = "0.23.1"
+app = marimo.App(width="columns")
+
+
+@app.cell(column=0)
+def _():
+    import os
+    import sys
+
+    sys.path.append('/home/clarkmaio/workspace/batteryopt/')
+    return
+
+
+@app.cell
+def _():
+    import marimo as mo
+    from src.battery import Battery
+    from src.da_opt import DAOptimisation
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import polars as pl
+
+    return Battery, DAOptimisation, mo, np, pl
+
+
+@app.cell
+def _(pl):
+    pricedf = pl.read_csv('/home/clarkmaio/workspace/batteryopt/data/dk_daprice.csv')
+    daprice = pricedf['Day-ahead Price (EUR/MWh)'].to_numpy()
+    return (daprice,)
+
+
+@app.cell
+def _(np, pl):
+    pvdf = pl.read_csv('/home/clarkmaio/workspace/batteryopt/data/dk_pv.csv')
+    pv = pvdf['Intraday (MW)'].to_numpy() / np.max(pvdf['Intraday (MW)'].to_numpy())
+    pv = None
+    return (pv,)
+
+
+@app.cell
+def _(np, pv):
+    if pv is not None:
+        x = np.linspace(0, 10, len(pv))
+        demand = np.cos(x) + np.random.randn(len(x)) * 0.1
+    demand = None
+    return (demand,)
+
+
+@app.cell
+def _(mo):
+    capacity = mo.ui.number(start=1, stop=100, value=1, label='Capacity [MW]', step=1)
+    return (capacity,)
+
+
+@app.cell(hide_code=True)
+def _(capacity, mo):
+    max_charge_power = mo.ui.number(start=0, stop=capacity.value, value=0.1*capacity.value, label='Max charge [Mwh]', step=0.1)
+    max_discharge_power = mo.ui.number(start=0, stop=capacity.value, value=0.1*capacity.value, label='Max discharge [MWh]', step=0.1)
+    charge_efficiency = mo.ui.slider(start=0.1, stop=1, value=0.9, label='Charge efficiency [%]', step=0.1)
+    discharge_efficiency = mo.ui.slider(start=0.1, stop=1, value=0.9, label='Discharge efficiency [%]', step=0.1)
+    starting_soc = mo.ui.slider(start=0, stop=capacity.value, value=capacity.value, label='Starting SOC', step=0.1)
+
+
+    mo.vstack([
+        mo.md('## Battery'),
+        capacity,
+        starting_soc,
+        max_charge_power,
+        max_discharge_power,
+        charge_efficiency,
+        discharge_efficiency
+    ])
+    return (
+        charge_efficiency,
+        discharge_efficiency,
+        max_charge_power,
+        max_discharge_power,
+        starting_soc,
+    )
+
+
+@app.cell
+def _(
+    Battery,
+    capacity,
+    charge_efficiency,
+    discharge_efficiency,
+    max_charge_power,
+    max_discharge_power,
+    starting_soc,
+):
+    battery = Battery(
+        capacity=capacity.value, 
+        max_charge_power=max_charge_power.value, 
+        max_discharge_power=max_discharge_power.value,
+        charge_efficiency=charge_efficiency.value,
+        discharge_efficiency=discharge_efficiency.value,
+        soc=starting_soc.value,
+        max_daily_cycles=10
+    )
+    battery
+    return (battery,)
+
+
+@app.cell
+def _(DAOptimisation, battery, daprice, demand, pv):
+    daproblem = DAOptimisation(battery=battery, 
+                               daprice=daprice,
+                               pv=pv,
+                               demand=demand,
+                               degradation_cost=0.,)
+    daproblem.solve()
+    return (daproblem,)
+
+
+@app.cell(column=1)
+def _(daproblem):
+    daproblem.plot(figsize=(6,5), soc=True, pv=True)
+    return
+
+
+@app.cell
+def _(daproblem):
+    daproblem
+    return
+
+
+if __name__ == "__main__":
+    app.run()

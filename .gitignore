@@ -1,0 +1,14 @@
+.idea
+.vscode/
+*.pyc
+*.xml
+*.env
+*.log
+**/__pycache__/
+
+
+# Gitignore log and data folders. Only code in git.
+log/
+dataset/
+
+**/.secret
