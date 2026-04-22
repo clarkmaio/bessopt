@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.23.1"
+__generated_with = "0.20.4"
 app = marimo.App(width="columns")
 
 
@@ -9,7 +9,7 @@ def _():
     import os
     import sys
 
-    sys.path.append('/home/clarkmaio/workspace/batteryopt/')
+    sys.path.append('/home/clarkmaio/workspace/bessopt/')
     return
 
 
@@ -21,30 +21,38 @@ def _():
     import numpy as np
     import matplotlib.pyplot as plt
     import polars as pl
+    from datetime import datetime
 
-    return Battery, DAOptimisation, mo, np, pl
+    from src.data import load_entsoe_dayahead_prices
+    from src.data import load_entsoe_solar_forecast
+
+    vdate = datetime(2026, 4, 12)
+    country_code = 'FR'
+    return (
+        Battery,
+        DAOptimisation,
+        load_entsoe_dayahead_prices,
+        load_entsoe_solar_forecast,
+        mo,
+        vdate,
+    )
 
 
 @app.cell
-def _(pl):
-    pricedf = pl.read_csv('/home/clarkmaio/workspace/batteryopt/data/dk_daprice.csv')
-    daprice = pricedf['Day-ahead Price (EUR/MWh)'].to_numpy()
-    return (daprice,)
+def _(load_entsoe_dayahead_prices, vdate):
+    pricedf = load_entsoe_dayahead_prices(valuedate=vdate, country_code='DE_LU')
+    return (pricedf,)
 
 
 @app.cell
-def _(np, pl):
-    pvdf = pl.read_csv('/home/clarkmaio/workspace/batteryopt/data/dk_pv.csv')
-    pv = pvdf['Intraday (MW)'].to_numpy() / np.max(pvdf['Intraday (MW)'].to_numpy())
+def _(load_entsoe_solar_forecast, vdate):
+    pv = load_entsoe_solar_forecast(valuedate=vdate, country_code='FR')
     pv = None
     return (pv,)
 
 
 @app.cell
-def _(np, pv):
-    if pv is not None:
-        x = np.linspace(0, 10, len(pv))
-        demand = np.cos(x) + np.random.randn(len(x)) * 0.1
+def _():
     demand = None
     return (demand,)
 
@@ -99,19 +107,21 @@ def _(
         charge_efficiency=charge_efficiency.value,
         discharge_efficiency=discharge_efficiency.value,
         soc=starting_soc.value,
-        max_daily_cycles=10
+        soc_end=starting_soc.value,
+        max_daily_cycles=2
     )
     battery
     return (battery,)
 
 
 @app.cell
-def _(DAOptimisation, battery, daprice, demand, pv):
+def _(DAOptimisation, battery, demand, pricedf, pv):
     daproblem = DAOptimisation(battery=battery, 
-                               daprice=daprice,
+                               daprice=pricedf['daprice'].to_numpy(),
                                pv=pv,
                                demand=demand,
-                               degradation_cost=0.,)
+                               degradation_cost=0.,
+                              product='15m')
     daproblem.solve()
     return (daproblem,)
 

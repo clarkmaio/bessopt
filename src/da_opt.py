@@ -1,16 +1,11 @@
-import base64
-import io
-
 import polars as pl
 import numpy as np
 import cvxpy
 import pimpmyplot as pmp
-import matplotlib.pyplot as plt
-
-
 
 from src.battery import Battery
 from src.utility import Utility
+from src.viz import plot_da_schedule
 
 
 
@@ -34,13 +29,14 @@ class DAOptimisation:
         n_steps: Number of time steps derived from the price series length.
     """
 
-    def __init__(self, 
-                 battery: Battery, 
+    def __init__(self,
+                 battery: Battery,
                  daprice: np.ndarray,
                  pv: np.ndarray = None,
-                 demand: np.ndarray = None, 
+                 demand: np.ndarray = None,
                  degradation_cost: float = 0.0,
                  utility: Utility = None,
+                 product: str = '1h',
                  ):
         """Initialise the optimisation with a battery and a day-ahead price series.
 
@@ -51,13 +47,20 @@ class DAOptimisation:
             degradation_cost: Cost per MWh of energy discharged [€/MWh], representing
                 battery wear. Subtracted from the revenue objective to discourage
                 unnecessary cycling. Defaults to 0 (no degradation penalty).
+            product: Time resolution of the traded product. '1h' for hourly
+                (dt=1.0) or '15m' for quarter-hourly (dt=0.25). Defaults to '1h'.
         """
+        if product not in ('1h', '15m'):
+            raise ValueError(f"product must be '1h' or '15m', got '{product}'")
+
         self.battery = battery
         self.daprice = daprice
         self.pv = pv
         self.demand = demand
         self.degradation_cost = degradation_cost
         self.utility = utility
+        self.product = product
+        self.dt = 1.0 if product == '1h' else 0.25
 
         self.n_steps = len(self.daprice)
         self.constraints = []
@@ -138,8 +141,8 @@ class DAOptimisation:
             # Battery power bounds with mutual-exclusion switch
             self.battery_charge >= 0,
             self.battery_discharge >= 0,
-            self.battery_charge <= self.battery_switch * self.battery.max_charge_power,
-            self.battery_discharge <= (1 - self.battery_switch) * self.battery.max_discharge_power,
+            self.battery_charge <= self.battery_switch * self.battery.max_charge_power * self.dt,
+            self.battery_discharge <= (1 - self.battery_switch) * self.battery.max_discharge_power * self.dt,
 
             # Power balance
             self._build_power_balance_constraint(),
@@ -298,81 +301,21 @@ class DAOptimisation:
              pnl: bool = True,
              pv: bool = True,
              demand: bool = True):
-        """Visualise the optimised schedule.
-
-        Plots charge/discharge power and optionally state of charge, day-ahead
-        price, PnL, PV, and demand.
-
-        Args:
-            figsize: Optional (width, height) tuple passed to ``plt.subplots``.
-            return_fig: If True, return the Figure instead of calling
-                ``plt.show()``. Used internally by :meth:`_repr_html_`.
-            soc: Show state-of-charge subplot. Defaults to True.
-            price: Show day-ahead price subplot. Defaults to True.
-            pnl: Show PnL subplot. Defaults to True.
-            pv: Show PV subplot (only if PV data was provided). Defaults to True.
-            demand: Show demand subplot (only if demand data was provided). Defaults to True.
-
-        Returns:
-            matplotlib Figure if ``return_fig=True``, otherwise None.
-        """
-        x = np.arange(self.n_steps)
-
-        nplots = 1  # charge/discharge is always shown
-        if soc:
-            nplots += 1
-        if price:
-            nplots += 1
-        if pnl:
-            nplots += 1
-        if pv and self.pv is not None:
-            nplots += 1
-        if demand and self.demand is not None:
-            nplots += 1
-
-        fig, ax = plt.subplots(nplots, 1, figsize=figsize)
-
-        idx = 0
-        ax[idx].bar(x=x, height=self.battery_charge.value, color='#2ecc71')
-        ax[idx].bar(x=x, height=-self.battery_discharge.value, color='#e74c3c')
-        ax[idx].axhline(y=0, color='black')
-        ax[idx].set_ylabel('MWh')
-
-        if soc:
-            idx += 1
-            ax[idx].fill_between(x, self.soc.value, alpha=0.6, color='#3498db', step='post')
-            ax[idx].step(x, self.soc.value, linewidth=0.8, color='#3498db', where='post')
-            ax[idx].set_ylabel('MWh')
-
-        if price:
-            idx += 1
-            ax[idx].step(x, self.daprice, color='#9b59b6', where='post')
-            ax[idx].set_ylabel('€/MWh')
-
-        if pv and self.pv is not None:
-            idx += 1
-            ax[idx].step(x, self.pv, color='#f39c12', where='post')
-            ax[idx].set_ylabel('MWh')
-
-        if demand and self.demand is not None:
-            idx += 1
-            ax[idx].step(x, self.demand, color='#e67e22', where='post')
-            ax[idx].set_ylabel('MWh')
-
-        if pnl:
-            idx += 1
-            ax[idx].bar(x=x, height=self.pnl, color=np.where(self.pnl >= 0, '#2ecc71', '#e74c3c'))
-            ax[idx].axhline(y=0, color='black')
-            ax[idx].set_ylabel('€')
-
-        for a in ax[:-1]:
-            a.tick_params(labelbottom=False)
-
-        fig.suptitle('Optimisation schedule', fontweight='bold')
-        plt.tight_layout()
-
-        if return_fig:
-            return fig
-        plt.show()
+        return plot_da_schedule(
+            battery_charge=self.battery_charge.value,
+            battery_discharge=self.battery_discharge.value,
+            soc_values=self.soc.value,
+            daprice=self.daprice,
+            pnl_values=self.pnl,
+            pv=self.pv,
+            demand=self.demand,
+            figsize=figsize,
+            return_fig=return_fig,
+            show_soc=soc,
+            show_price=price,
+            show_pnl=pnl,
+            show_pv=pv,
+            show_demand=demand,
+        )
 
 
