@@ -4,7 +4,7 @@
 
 
 
-flowshow
+
 python-dotenv
 loguru
 pytest
@@ -15,4 +15,3 @@ matplotlib
 polars
 cvxpy
 pimpmyplot
-# mlflow

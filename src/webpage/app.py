@@ -472,7 +472,7 @@ def sidebar(params: dict):
             cls="sidebar-field",
         ),
         P("Battery", cls="sidebar-title", style="margin-top:24px;"),
-        field("Capacity (MWh)",     "capacity",  params["capacity"],  0.1),
+        field("Capacity (MW)",     "capacity",  params["capacity"],  0.1),
         Div(
             Label(f'Starting SoC (MWh) — {params["soc"]:.2f}', id="soc-label"),
             Input(
@@ -497,6 +497,14 @@ def sidebar(params: dict):
         ),
         pct_slider("Charge Efficiency",    "charge_eff",    params["charge_eff"],    "charge-eff-label"),
         pct_slider("Discharge Efficiency", "discharge_eff", params["discharge_eff"], "discharge-eff-label"),
+        Div(
+            Label("Daily Cycles"),
+            Input(
+                type="number", value=str(params["daily_cycles"]), min="1", step="1",
+                onchange="updateParam('daily_cycles', this.value)",
+            ),
+            cls="sidebar-field",
+        ),
         cls="sidebar",
     )
 
@@ -560,9 +568,9 @@ def index(idx: int = N_DAYS - 1):
 
 
 @rt("/dayahead")
-def dayahead(idx: int = N_DAYS - 1, capacity: float = 1.0, soc: float = 1.0, max_power: float = 0.5, country: str = COUNTRY_CODE, charge_eff: int = 90, discharge_eff: int = 90):
+def dayahead(idx: int = N_DAYS - 1, capacity: float = 1.0, soc: float = 1.0, max_power: float = 0.5, country: str = COUNTRY_CODE, charge_eff: int = 90, discharge_eff: int = 90, daily_cycles: int = 2):
     idx    = max(0, min(idx, N_DAYS - 1))
-    params = dict(idx=idx, capacity=capacity, soc=soc, max_power=max_power, country=country, charge_eff=charge_eff, discharge_eff=discharge_eff)
+    params = dict(idx=idx, capacity=capacity, soc=soc, max_power=max_power, country=country, charge_eff=charge_eff, discharge_eff=discharge_eff, daily_cycles=daily_cycles)
     qs     = urlencode(params)
 
     spinner = Div(
@@ -578,7 +586,7 @@ def dayahead(idx: int = N_DAYS - 1, capacity: float = 1.0, soc: float = 1.0, max
 
 
 @rt("/dayahead/plot")
-def dayahead_plot(idx: int = N_DAYS - 1, capacity: float = 1.0, soc: float = 1.0, max_power: float = 0.5, country: str = COUNTRY_CODE, charge_eff: int = 90, discharge_eff: int = 90):
+def dayahead_plot(idx: int = N_DAYS - 1, capacity: float = 1.0, soc: float = 1.0, max_power: float = 0.5, country: str = COUNTRY_CODE, charge_eff: int = 90, discharge_eff: int = 90, daily_cycles: int = 2):
     try:
         df     = load_entsoe_dayahead_prices(country, idx_to_date(idx))
         prices = df['daprice'].to_numpy()
@@ -588,7 +596,7 @@ def dayahead_plot(idx: int = N_DAYS - 1, capacity: float = 1.0, soc: float = 1.0
             max_charge_power=max_power,
             max_discharge_power=max_power,
             soc=soc,
-            max_daily_cycles=2,
+            max_daily_cycles=max(1, daily_cycles),
             charge_efficiency=charge_eff / 100,
             discharge_efficiency=discharge_eff / 100,
         )
@@ -606,9 +614,9 @@ def dayahead_plot(idx: int = N_DAYS - 1, capacity: float = 1.0, soc: float = 1.0
 
 
 @rt("/intraday")
-def intraday(idx: int = N_DAYS - 1, capacity: float = 1.0, soc: float = 1.0, max_power: float = 0.5, country: str = COUNTRY_CODE, charge_eff: int = 90, discharge_eff: int = 90):
+def intraday(idx: int = N_DAYS - 1, capacity: float = 1.0, soc: float = 1.0, max_power: float = 0.5, country: str = COUNTRY_CODE, charge_eff: int = 90, discharge_eff: int = 90, daily_cycles: int = 2):
     idx    = max(0, min(idx, N_DAYS - 1))
-    params = dict(idx=idx, capacity=capacity, soc=soc, max_power=max_power, country=country, charge_eff=charge_eff, discharge_eff=discharge_eff)
+    params = dict(idx=idx, capacity=capacity, soc=soc, max_power=max_power, country=country, charge_eff=charge_eff, discharge_eff=discharge_eff, daily_cycles=daily_cycles)
     return Title("BESSopt"), navbar("intraday", params), date_slider("intraday", params), page_layout(params, P("Work in progress", style="color:#999; font-style:italic;"))
 
 
