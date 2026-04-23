@@ -403,6 +403,8 @@ def navbar(active: str, params: dict):
                   cls="nav-tab" + (" active" if active == "dayahead" else "")),
                 A("Intraday", href=f"/intraday?{qs}",
                   cls="nav-tab" + (" active" if active == "intraday" else "")),
+                A("Roadmap", href="/roadmap",
+                  cls="nav-tab" + (" active" if active == "roadmap" else "")),
                 cls="nav-links",
             ),
             cls="container",
@@ -618,6 +620,35 @@ def intraday(idx: int = N_DAYS - 1, capacity: float = 1.0, soc: float = 1.0, max
     idx    = max(0, min(idx, N_DAYS - 1))
     params = dict(idx=idx, capacity=capacity, soc=soc, max_power=max_power, country=country, charge_eff=charge_eff, discharge_eff=discharge_eff, daily_cycles=daily_cycles)
     return Title("BESSopt"), navbar("intraday", params), date_slider("intraday", params), page_layout(params, P("Work in progress", style="color:#999; font-style:italic;"))
+
+
+@rt("/roadmap")
+def roadmap():
+    items = [
+        ("✅", "Day ahead optimisation"),
+        ("⬜", "Rolling intraday"),
+        ("⬜", "Linearisation of utility function (for risk management)"),
+        ("⬜", "Stochastic optimisation (handle uncertainty in forecasts)"),
+    ]
+
+    rows = [
+        Div(
+            Span(icon, style="font-size:1.1rem; min-width:28px; display:inline-block;"),
+            Span(label, style=f"color:{'#000' if icon == '✅' else '#999'};"),
+            style="display:flex; align-items:center; gap:12px; padding:14px 0; border-bottom:1px solid #f0f0f0;",
+        )
+        for icon, label in items
+    ]
+
+    return (
+        Title("BESSopt – Roadmap"),
+        navbar("roadmap", dict(idx=N_DAYS - 1, capacity=1.0, soc=1.0, max_power=0.5, country=COUNTRY_CODE, charge_eff=90, discharge_eff=90, daily_cycles=2)),
+        Main(
+            P("Roadmap", cls="section-label"),
+            Div(*rows),
+            style="max-width:640px; margin:48px auto; padding:0 32px;",
+        ),
+    )
 
 
 if __name__ == "__main__":
