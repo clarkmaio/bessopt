@@ -13,5 +13,6 @@ entsoe-py
 python-fasthtml
 matplotlib
 polars
+cvxpy
 
 # mlflow
