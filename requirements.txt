@@ -3,7 +3,7 @@
 
 
 
-clarkpycore
+
 flowshow
 python-dotenv
 loguru
