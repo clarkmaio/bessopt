@@ -11,5 +11,6 @@ pytest
 pyyaml
 entsoe-py
 python-fasthtml
+matplotlib
 
 # mlflow
