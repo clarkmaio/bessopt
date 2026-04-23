@@ -14,5 +14,5 @@ python-fasthtml
 matplotlib
 polars
 cvxpy
-
+pimpmyplot
 # mlflow
