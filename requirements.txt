@@ -12,5 +12,6 @@ pyyaml
 entsoe-py
 python-fasthtml
 matplotlib
+polars
 
 # mlflow
