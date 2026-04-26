@@ -3,7 +3,7 @@ import numpy as np
 import cvxpy
 import pimpmyplot as pmp
 
-from src.battery import Battery
+from src.battery import Battery, BatteryConstraints
 from src.utility import Utility
 from src.viz import plot_da_schedule
 
@@ -36,6 +36,7 @@ class DAOptimisation:
                  demand: np.ndarray = None,
                  degradation_cost: float = 0.0,
                  utility: Utility = None,
+                 battery_constraints: BatteryConstraints = None,
                  product: str = '1h',
                  ):
         """Initialise the optimisation with a battery and a day-ahead price series.
@@ -44,9 +45,14 @@ class DAOptimisation:
             battery: Battery dataclass containing capacity, power limits and
                 efficiency parameters.
             daprice: Polars Series of day-ahead prices, one entry per time step.
+            pv: Optional PV generation profile [MW], one value per time step.
+            demand: Optional demand profile [MW], one value per time step.
             degradation_cost: Cost per MWh of energy discharged [€/MWh], representing
                 battery wear. Subtracted from the revenue objective to discourage
                 unnecessary cycling. Defaults to 0 (no degradation penalty).
+            utility: Optional piecewise-linear utility function applied to revenue.
+            battery_constraints: Operational constraints (min/max SoC, terminal SoC,
+                max daily cycles). Defaults to BatteryConstraints() if not provided.
             product: Time resolution of the traded product. '1h' for hourly
                 (dt=1.0) or '15m' for quarter-hourly (dt=0.25). Defaults to '1h'.
         """
@@ -59,6 +65,7 @@ class DAOptimisation:
         self.demand = demand
         self.degradation_cost = degradation_cost
         self.utility = utility
+        self.battery_constraints = battery_constraints or BatteryConstraints()
         self.product = product
         self.dt = 1.0 if product == '1h' else 0.25
 
@@ -148,16 +155,16 @@ class DAOptimisation:
             self._build_power_balance_constraint(),
 
             # State-of-charge bounds (min_soc enforces depth-of-discharge limit)
-            self.soc >= self.battery.min_soc * self.battery.capacity,
-            self.soc <= self.battery.capacity,
+            self.soc >= self.battery_constraints.min_soc * self.battery.capacity,
+            self.soc <= self.battery_constraints.max_soc * self.battery.capacity,
 
             # Daily cycle constraint
-            cvxpy.sum(self.battery_discharge) / self.battery.capacity <= self.battery.max_daily_cycles,
+            cvxpy.sum(self.battery_discharge) / self.battery.capacity <= self.battery_constraints.max_daily_cycles,
         ]
 
         # Terminal SoC constraint (optional)
-        if self.battery.soc_end is not None:
-            self.constraints.append(self.soc[-1] >= self.battery.soc_end)
+        if self.battery_constraints.soc_end is not None:
+            self.constraints.append(self.soc[-1] >= self.battery_constraints.soc_end)
 
     def _build_objective(self) -> cvxpy.Maximize:
         """Construct the maximisation objective.

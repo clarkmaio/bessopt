@@ -1,21 +1,64 @@
 
 
-
 from dataclasses import dataclass
 
 
 @dataclass
-class Battery:
-    capacity: float
-    max_charge_power: float
-    max_discharge_power: float
-    charge_efficiency: float = 1
-    discharge_efficiency: float = 1
-    soc: float = 0
-    min_soc: float = 0.0
-    soc_end: float = None       # if None, no terminal SoC constraint is applied
+class BatteryConstraints:
     max_daily_cycles: float = 1
-    
+    min_soc: float = 0.0
+    max_soc: float = 1.0
+    soc_end: float = None
+
+
+class Battery:
+
+    def __init__(
+        self,
+        capacity: float,
+        max_charge_power: float,
+        max_discharge_power: float,
+        charge_efficiency: float = 1.0,
+        discharge_efficiency: float = 1.0,
+        soc: float = 0.0,
+    ):
+        self._capacity            = capacity
+        self._max_charge_power    = max_charge_power
+        self._max_discharge_power = max_discharge_power
+        self._charge_efficiency   = charge_efficiency
+        self._discharge_efficiency = discharge_efficiency
+        self._soc                 = soc
+
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
+
+    @property
+    def capacity(self) -> float:
+        return self._capacity
+
+    @property
+    def max_charge_power(self) -> float:
+        return self._max_charge_power
+
+    @property
+    def max_discharge_power(self) -> float:
+        return self._max_discharge_power
+
+    @property
+    def charge_efficiency(self) -> float:
+        return self._charge_efficiency
+
+    @property
+    def discharge_efficiency(self) -> float:
+        return self._discharge_efficiency
+
+    @property
+    def soc(self) -> float:
+        return self._soc
+
+    def update_soc(self, value: float) -> None:
+        self._soc = value
 
     def __repr__(self) -> str:
         rows = [
@@ -25,9 +68,6 @@ class Battery:
             ("Charge efficiency",   f"{self.charge_efficiency}"),
             ("Discharge efficiency",f"{self.discharge_efficiency}"),
             ("Initial SoC",         f"{self.soc} MWh"),
-            ("Min SoC",             f"{self.min_soc * 100:.0f}%"),
-            ("Terminal SoC",        f"{self.soc_end} MWh" if self.soc_end is not None else "unconstrained"),
-            ("Max daily cycles",    f"{self.max_daily_cycles}"),
         ]
 
         col_w = max(len(label) for label, _ in rows)

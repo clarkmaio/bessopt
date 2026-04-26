@@ -3,7 +3,7 @@ import numpy as np
 import cvxpy
 import matplotlib.pyplot as plt
 
-from src.battery import Battery
+from src.battery import Battery, BatteryConstraints
 
 
 M = 1e8
@@ -48,19 +48,22 @@ class IntradayOptimisation:
         price_short: np.ndarray,
         da_schedule: pl.DataFrame,
         degradation_cost: float = 0.0,
+        battery_constraints: BatteryConstraints = None,
         product: str = '1h',
     ):
         """
         Args:
-            battery:          Battery dataclass.
-            price_long:       Imbalance long (bid) prices, one per time step [€/MWh].
-            price_short:      Imbalance short (ask) prices, one per time step [€/MWh].
-            da_schedule:      Output of DAOptimisation.get_results(); must contain
-                              columns ``battery_charge``, ``battery_discharge``,
-                              ``grid_in``, ``grid_out``.
-            degradation_cost: Throughput penalty [€/MWh discharged]. Defaults to 0.
-            product:          Time resolution of the traded product. '1h' for hourly
-                              (dt=1.0) or '15m' for quarter-hourly (dt=0.25). Defaults to '1h'.
+            battery:             Battery dataclass.
+            price_long:          Imbalance long (bid) prices, one per time step [€/MWh].
+            price_short:         Imbalance short (ask) prices, one per time step [€/MWh].
+            da_schedule:         Output of DAOptimisation.get_results(); must contain
+                                 columns ``battery_charge``, ``battery_discharge``,
+                                 ``grid_in``, ``grid_out``.
+            degradation_cost:    Throughput penalty [€/MWh discharged]. Defaults to 0.
+            battery_constraints: Operational constraints (min/max SoC, terminal SoC,
+                                 max daily cycles). Defaults to BatteryConstraints() if not provided.
+            product:             Time resolution of the traded product. '1h' for hourly
+                                 (dt=1.0) or '15m' for quarter-hourly (dt=0.25). Defaults to '1h'.
         """
         if product not in ('1h', '15m'):
             raise ValueError(f"product must be '1h' or '15m', got '{product}'")
@@ -69,6 +72,7 @@ class IntradayOptimisation:
         self.price_long = np.asarray(price_long, dtype=float)
         self.price_short = np.asarray(price_short, dtype=float)
         self.degradation_cost = degradation_cost
+        self.battery_constraints = battery_constraints or BatteryConstraints()
         self.product = product
         self.dt = 1.0 if product == '1h' else 0.25
 
@@ -154,19 +158,19 @@ class IntradayOptimisation:
             self.grid_out == self.battery_discharge,
 
             # ── State-of-charge bounds ────────────────────────────────────────
-            self.soc >= self.battery.min_soc * self.battery.capacity,
-            self.soc <= self.battery.capacity,
+            self.soc >= self.battery_constraints.min_soc * self.battery.capacity,
+            self.soc <= self.battery_constraints.max_soc * self.battery.capacity,
 
             # ── Daily cycle constraint ────────────────────────────────────────
-            cvxpy.sum(self.battery_discharge) / self.battery.capacity <= self.battery.max_daily_cycles,
+            cvxpy.sum(self.battery_discharge) / self.battery.capacity <= self.battery_constraints.max_daily_cycles,
 
             # ── Residual split constraints (eqs. 7-8 linearisation) ──────────
             self.battery_charge - self.c_bar == self._dc_pos - self._dc_neg,
             self.battery_discharge - self.d_bar == self._dd_pos - self._dd_neg,
         ]
 
-        if self.battery.soc_end is not None:
-            self.constraints.append(self.soc[-1] >= self.battery.soc_end)
+        if self.battery_constraints.soc_end is not None:
+            self.constraints.append(self.soc[-1] >= self.battery_constraints.soc_end)
 
     def _build_objective(self) -> cvxpy.Maximize:
         """Construct the maximisation objective (eq. 10).
