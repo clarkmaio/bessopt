@@ -16,15 +16,15 @@ def _():
 @app.cell
 def _():
     import marimo as mo
-    from src.battery import Battery
-    from src.da_opt import DAOptimisation
+    from bessopt.battery import Battery
+    from bessopt.da_opt import DAOptimisation
     import numpy as np
     import matplotlib.pyplot as plt
     import polars as pl
     from datetime import datetime
 
-    from src.data import load_entsoe_dayahead_prices
-    from src.data import load_entsoe_solar_forecast
+    from bessopt.data import load_entsoe_dayahead_prices
+    from bessopt.data import load_entsoe_solar_forecast
 
     vdate = datetime(2026, 4, 12)
     country_code = 'FR'

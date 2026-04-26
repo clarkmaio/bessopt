@@ -1,7 +1,6 @@
 import polars as pl
 import numpy as np
 import cvxpy
-import pimpmyplot as pmp
 
 from src.battery import Battery, BatteryConstraints
 from src.utility import Utility

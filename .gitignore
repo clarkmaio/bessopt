@@ -12,3 +12,7 @@ log/
 dataset/
 
 **/.secret
+
+
+deploy.sh
+deployinstructions.md
