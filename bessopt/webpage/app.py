@@ -11,9 +11,9 @@ import matplotlib.pyplot as plt
 
 from fasthtml.common import *
 
-from src.battery import Battery
-from src.da_opt import DAOptimisation
-from src.data import load_entsoe_dayahead_prices
+from bessopt.battery import Battery
+from bessopt.da_opt import DAOptimisation
+from bessopt.data import load_entsoe_dayahead_prices
 
 # --------------------------------------------------------------------------- #
 # Date range helpers

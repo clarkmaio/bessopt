@@ -2,9 +2,9 @@ import polars as pl
 import numpy as np
 import cvxpy
 
-from src.battery import Battery, BatteryConstraints
-from src.utility import Utility
-from src.viz import plot_da_schedule
+from bessopt.battery import Battery, BatteryConstraints
+from bessopt.utility import Utility
+from bessopt.viz import plot_da_schedule
 
 
 

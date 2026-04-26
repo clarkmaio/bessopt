@@ -3,7 +3,7 @@ import numpy as np
 import cvxpy
 import matplotlib.pyplot as plt
 
-from src.battery import Battery, BatteryConstraints
+from bessopt.battery import Battery, BatteryConstraints
 
 
 M = 1e8
