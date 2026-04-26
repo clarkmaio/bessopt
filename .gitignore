@@ -5,6 +5,7 @@
 *.env
 *.log
 **/__pycache__/
+.claude
 
 
 # Gitignore log and data folders. Only code in git.
@@ -16,3 +17,15 @@ dataset/
 
 deploy.sh
 deployinstructions.md
+
+*.egg-info/
+build/
+dist/
+
+
+
+__pycache__
+# Sphinx
+docs/_build/
+# MkDocs
+site/
