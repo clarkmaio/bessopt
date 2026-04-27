@@ -1,18 +1,14 @@
 from entsoe import EntsoePandasClient
 import pandas as pd
-from dotenv import load_dotenv
 from datetime import date, datetime, time
 import os
 import polars as pl
 
-
-load_dotenv()
-
 _ENTSOE_TZ = 'Europe/Brussels'
 
 
-def _get_client() -> EntsoePandasClient:
-    return EntsoePandasClient(api_key=os.environ.get('ENTSOE_API_KEY'))
+def _get_client(api_key: str = None) -> EntsoePandasClient:
+    return EntsoePandasClient(api_key=os.environ.get('ENTSOE_API_KEY', api_key))
 
 
 def _day_bounds(valuedate: date) -> tuple[pd.Timestamp, pd.Timestamp]:
@@ -30,13 +26,13 @@ def _index_to_valuedate(df: pd.DataFrame) -> pl.DataFrame:
     return pl.from_pandas(df.reset_index())
 
 
-def load_entsoe_solar_forecast(country_code: str, valuedate: date) -> pl.DataFrame:
+def load_entsoe_solar_forecast(country_code: str, valuedate: date, api_key: str = None) -> pl.DataFrame:
     """
     Returns a polars DataFrame with columns:
         valuedate : datetime  – naive UTC timestamp
         solar     : float     – solar capacity factor (generation forecast / installed capacity, 0-1)
     """
-    client = _get_client()
+    client = _get_client(api_key=api_key)
     start_ts, end_ts = _day_bounds(valuedate)
 
     forecast = client.query_wind_and_solar_forecast(country_code, start=start_ts, end=end_ts, psr_type='B16')
@@ -56,27 +52,27 @@ def load_entsoe_solar_forecast(country_code: str, valuedate: date) -> pl.DataFra
     return _index_to_valuedate(df)
 
 
-def load_entsoe_dayahead_prices(country_code: str, valuedate: date) -> pl.DataFrame:
+def load_entsoe_dayahead_price(country_code: str, valuedate: date, api_key: str = None) -> pl.DataFrame:
     """
     Returns a polars DataFrame with columns:
         valuedate : datetime  – naive UTC timestamp
         daprice   : float     – day-ahead price (EUR/MWh)
     """
-    client = _get_client()
+    client = _get_client(api_key=api_key)
     start_ts, end_ts = _day_bounds(valuedate)
     series = client.query_day_ahead_prices(country_code, start=start_ts, end=end_ts)
-    df = series.to_frame('daprice')
+    df = series.to_frame('price')
     return _index_to_valuedate(df)
 
 
-def load_entsoe_imbalance_prices(country_code: str, valuedate: date) -> pl.DataFrame:
+def load_entsoe_imbalance_price(country_code: str, valuedate: date, api_key: str = None) -> pl.DataFrame:
     """
     Returns a polars DataFrame with columns:
         valuedate : datetime  – naive UTC timestamp
         long      : float     – imbalance price for long position (EUR/MWh)
         short     : float     – imbalance price for short position (EUR/MWh)
     """
-    client = _get_client()
+    client = _get_client(api_key=api_key)
     start_ts, end_ts = _day_bounds(valuedate)
     df = client.query_imbalance_prices(country_code, start=start_ts, end=end_ts, psr_type=None)
     df = df[['Long', 'Short']].rename(columns={'Long': 'long', 'Short': 'short'})
@@ -88,8 +84,8 @@ if __name__ == '__main__':
     country_code = 'DK_1'
 
     solar     = load_entsoe_solar_forecast(country_code, valuedate)
-    da_price  = load_entsoe_dayahead_prices(country_code, valuedate)
-    imb_price = load_entsoe_imbalance_prices(country_code, valuedate)
+    da_price  = load_entsoe_dayahead_price(country_code, valuedate)
+    imb_price = load_entsoe_imbalance_price(country_code, valuedate)
 
     print(solar.head())
     print(da_price.head())

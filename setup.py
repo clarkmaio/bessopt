@@ -5,7 +5,7 @@ with open("README.md", encoding="utf-8") as f:
 
 setup(
     name="bessopt",
-    version="0.1.0",
+    version="0.1.1",
     description="BESS optimisation: day-ahead and intraday battery dispatch using MILP",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -20,6 +20,7 @@ setup(
         "pimpmyplot",
     ],
     extras_require={
+        "data": ["python-dotenv", "entsoe-py"],
         "dev": ["pytest"],
         "web": ["python-fasthtml", "fastapi", "uvicorn", "python-entsoe"],
     },
