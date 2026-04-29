@@ -36,7 +36,7 @@ class IntradayOptimisation:
                          when selling (discharging) residuals.
         price_short:     Imbalance short price series [€/MWh] – cost paid when
                          buying (charging) residuals.
-        da_schedule:     Full DA dispatch DataFrame from DAOptimisation.get_results().
+        current_schedule:     current dispatch schedule from dayahead optimisation or previous intraday run.
         degradation_cost: Cost per MWh discharged [€/MWh]. Defaults to 0.
         n_steps:         Number of time steps (derived from price series length).
     """
@@ -46,7 +46,9 @@ class IntradayOptimisation:
         battery: Battery,
         price_long: np.ndarray,
         price_short: np.ndarray,
-        da_schedule: pl.DataFrame,
+        current_schedule: pl.DataFrame,
+        battery_charge_schedule: np.ndarray,
+        battery_discharge_schedule: np.ndarray,
         degradation_cost: float = 0.0,
         battery_constraints: BatteryConstraints = None,
         product: str = '1h',
@@ -56,7 +58,7 @@ class IntradayOptimisation:
             battery:             Battery dataclass.
             price_long:          Imbalance long (bid) prices, one per time step [€/MWh].
             price_short:         Imbalance short (ask) prices, one per time step [€/MWh].
-            da_schedule:         Output of DAOptimisation.get_results(); must contain
+            current_schedule:         Output of DAOptimisation.get_results(); must contain
                                  columns ``battery_charge``, ``battery_discharge``,
                                  ``grid_in``, ``grid_out``.
             degradation_cost:    Throughput penalty [€/MWh discharged]. Defaults to 0.
@@ -77,14 +79,20 @@ class IntradayOptimisation:
         self.dt = 1.0 if product == '1h' else 0.25
 
         # Current (DA) position – the "bar" quantities in the paper
-        self.c_bar = da_schedule["battery_charge"].to_numpy()
-        self.d_bar = da_schedule["battery_discharge"].to_numpy()
-        self.grid_in_bar = da_schedule["grid_in"].to_numpy()
-        self.grid_out_bar = da_schedule["grid_out"].to_numpy()
-
+        self.c_bar = battery_charge_schedule
+        self.d_bar = battery_discharge_schedule
+        
         self.n_steps = len(self.price_long)
         self.constraints = []
         self.problem = None
+
+
+    def update_status(self, soc = None, price_long = None, price_short  = None):
+        """
+        Update either battery soc or forecasts
+        """
+
+        pass
 
     # ------------------------------------------------------------------
     # Build helpers

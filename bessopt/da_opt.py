@@ -73,6 +73,27 @@ class DAOptimisation:
         self.problem = None
 
 
+    def update_status(self, soc = None, pv = None, demand = None, daprice = None):
+        """
+        Update either battery soc or forecasts
+        """
+
+        if soc is not None:
+            self.battery.update_soc(value=soc)
+        
+        if daprice:
+            self.daprice = daprice
+        
+        # Update pv and demand only if current property is not None
+        if self.pv is not None and pv is not None:
+            self.pv = pv
+
+        if self.demand is not None and demand is not None:
+            self.demand = demand
+
+
+
+
     def _build_variables(self) -> None:
         """Declare all CVXPY decision variables.
 

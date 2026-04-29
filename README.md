@@ -8,17 +8,16 @@ In `documentation` you will find the papers I'm studying about the topic. In cas
 
 
 ## Purpose
-Main of purpose of this is to convince [Reel](reel.energy) to hire me.
+Learn OR by applying it in real world problems.
 
-Also I've find out OR is much fun.
-
-
+In documentation folder you will find papers I studied and implemented.
 
 ## Roadmap 
 
 ✅ day ahead  
 ⬜ rolling intraday  
-⬜ linearisation of utility function (for risk management)  
+✅ linearisation of utility function (for risk management)  
+⬜ co-located assets (pv/wind + bess dispatch)
 ⬜ stochastic optimisation (handle uncertainty in forecasts)
 
 
