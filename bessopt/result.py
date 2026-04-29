@@ -11,11 +11,8 @@ class OptimisationResult:
     def __init__(self):
         self._data = pl.DataFrame()
 
-
-
     def __repr__(self):
         pass
-
 
     def __html_repr__(self):
         '''

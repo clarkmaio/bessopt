@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 from fasthtml.common import *
 
 from bessopt.battery import Battery
-from bessopt.da_opt import DAOptimisation
+from bessopt.problems.dayahead import DAOptimisation
 from bessopt.data import load_entsoe_dayahead_prices
 
 # --------------------------------------------------------------------------- #

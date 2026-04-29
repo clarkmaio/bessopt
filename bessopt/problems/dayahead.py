@@ -1,17 +1,14 @@
-import polars as pl
-import numpy as np
 import cvxpy
+import numpy as np
+import polars as pl
 
 from bessopt.battery import Battery, BatteryConstraints
+from bessopt.problems.optimisation import BESSOptimisation
 from bessopt.utility import Utility
 from bessopt.viz import plot_da_schedule
 
 
-
-M = 1e8
-
-
-class DAOptimisation:
+class DAOptimisation(BESSOptimisation):
     """Day-Ahead market battery optimisation using mixed-integer linear programming.
 
     Maximises revenue from buying (grid_in) and selling (grid_out) energy on the
@@ -55,80 +52,31 @@ class DAOptimisation:
             product: Time resolution of the traded product. '1h' for hourly
                 (dt=1.0) or '15m' for quarter-hourly (dt=0.25). Defaults to '1h'.
         """
-        if product not in ('1h', '15m'):
-            raise ValueError(f"product must be '1h' or '15m', got '{product}'")
-
-        self.battery = battery
+        super().__init__(
+            battery=battery,
+            n_steps=len(daprice),
+            degradation_cost=degradation_cost,
+            battery_constraints=battery_constraints,
+            product=product,
+        )
         self.daprice = daprice
         self.pv = pv
         self.demand = demand
-        self.degradation_cost = degradation_cost
         self.utility = utility
-        self.battery_constraints = battery_constraints or BatteryConstraints()
-        self.product = product
-        self.dt = 1.0 if product == '1h' else 0.25
 
-        self.n_steps = len(self.daprice)
-        self.constraints = []
-        self.problem = None
-
-
-    def update_status(self, soc = None, pv = None, demand = None, daprice = None):
-        """
-        Update either battery soc or forecasts
-        """
-
+    def update_status(self, soc=None, pv=None, demand=None, daprice=None):
+        """Update either battery soc or forecasts."""
         if soc is not None:
             self.battery.update_soc(value=soc)
-        
+
         if daprice:
             self.daprice = daprice
-        
-        # Update pv and demand only if current property is not None
+
         if self.pv is not None and pv is not None:
             self.pv = pv
 
         if self.demand is not None and demand is not None:
             self.demand = demand
-
-
-
-
-    def _build_variables(self) -> None:
-        """Declare all CVXPY decision variables.
-
-        Variables
-        ---------
-        battery_charge : non-negative continuous, shape (n_steps,)
-            Power [MW] flowing into the battery at each step.
-        battery_discharge : non-negative continuous, shape (n_steps,)
-            Power [MW] flowing out of the battery at each step.
-        battery_switch : binary, shape (n_steps,)
-            1 → battery is charging, 0 → battery is discharging.
-        grid_in : non-negative continuous, shape (n_steps,)
-            Power [MW] imported from the grid (buying energy). Equals
-            battery_charge by the power balance constraint.
-        grid_out : non-negative continuous, shape (n_steps,)
-            Power [MW] exported to the grid (selling energy). Equals
-            battery_discharge by the power balance constraint.
-        soc : expression, shape (n_steps,)
-            State of charge [MWh] at the end of each step, computed from
-            cumulative charge/discharge with efficiency losses.
-        """
-        self.battery_charge = cvxpy.Variable(self.n_steps, name="battery_charge")
-        self.battery_discharge = cvxpy.Variable(self.n_steps, name="battery_discharge")
-        self.battery_switch = cvxpy.Variable(self.n_steps, boolean=True, name="battery_switch")
-
-        self.grid_in = cvxpy.Variable(self.n_steps, name="grid_in")
-        self.grid_out = cvxpy.Variable(self.n_steps, name="grid_out")
-
-        self.soc = (
-            self.battery.soc
-            + cvxpy.cumsum(
-                self.battery_charge * self.battery.charge_efficiency
-                - self.battery_discharge / self.battery.discharge_efficiency
-            )
-        )
 
     def _build_power_balance_constraint(self):
         """Build the nodal power balance constraint.
@@ -153,7 +101,6 @@ class DAOptimisation:
 
         Constraints
         -----------
-        - battery_charge and battery_discharge are non-negative.
         - battery_switch enforces mutual exclusion: charge only when switch=1,
           discharge only when switch=0.
         - Power balance: nodal balance across grid, battery, PV, and demand
@@ -164,27 +111,8 @@ class DAOptimisation:
           for free at the end of the horizon.
         - Daily cycle constraint limits total throughput to max_daily_cycles.
         """
-        self.constraints = [
-            # Battery power bounds with mutual-exclusion switch
-            self.battery_charge >= 0,
-            self.battery_discharge >= 0,
-            self.battery_charge <= self.battery_switch * self.battery.max_charge_power * self.dt,
-            self.battery_discharge <= (1 - self.battery_switch) * self.battery.max_discharge_power * self.dt,
-
-            # Power balance
-            self._build_power_balance_constraint(),
-
-            # State-of-charge bounds (min_soc enforces depth-of-discharge limit)
-            self.soc >= self.battery_constraints.min_soc * self.battery.capacity,
-            self.soc <= self.battery_constraints.max_soc * self.battery.capacity,
-
-            # Daily cycle constraint
-            cvxpy.sum(self.battery_discharge) / self.battery.capacity <= self.battery_constraints.max_daily_cycles,
-        ]
-
-        # Terminal SoC constraint (optional)
-        if self.battery_constraints.soc_end is not None:
-            self.constraints.append(self.soc[-1] >= self.battery_constraints.soc_end)
+        self.constraints = self._build_battery_constraints()
+        self.constraints.append(self._build_power_balance_constraint())
 
     def _build_objective(self) -> cvxpy.Maximize:
         """Construct the maximisation objective.
@@ -200,8 +128,7 @@ class DAOptimisation:
         Returns:
             CVXPY Maximize expression.
         """
-        prices = self.daprice
-        revenue = cvxpy.sum(cvxpy.multiply(self.grid_in - self.grid_out, prices))
+        revenue = cvxpy.sum(cvxpy.multiply(self.grid_in - self.grid_out, self.daprice))
         degradation = self.degradation_cost * cvxpy.sum(self.battery_discharge)
         return cvxpy.Maximize(revenue - degradation)
 
@@ -218,25 +145,6 @@ class DAOptimisation:
         if self.problem is None or self.problem.status not in ("optimal", "optimal_inaccurate"):
             raise RuntimeError("No optimal solution available. Call solve() first.")
         return self.daprice * (self.grid_in.value - self.grid_out.value)
-
-    def solve(self) -> None:
-        """Build and solve the day-ahead optimisation problem.
-
-        Constructs decision variables, constraints, and the objective, then
-        invokes the CVXPY solver (default: CBC or GLPK_MI for MILP).
-
-        Returns:
-            The solved CVXPY Problem instance. Inspect ``problem.status`` to
-            check feasibility and ``problem.value`` for the optimal objective
-            value (total €-revenue over the horizon).
-        """
-        self._build_variables()
-        self._build_constraints()
-
-        objective = self._build_objective()
-        self.problem = cvxpy.Problem(objective, self.constraints)
-        self.problem.solve()
-
 
     def get_results(self) -> pl.DataFrame:
         """Extract the optimised schedule as a Polars DataFrame.
@@ -264,21 +172,19 @@ class DAOptimisation:
         if self.problem is None or self.problem.status not in ("optimal", "optimal_inaccurate"):
             raise RuntimeError("No optimal solution available. Call solve() first.")
 
-        prices = self.daprice
         charge = self.battery_charge.value
         discharge = self.battery_discharge.value
-        soc = self.soc.value
         grid_in = self.grid_in.value
         grid_out = self.grid_out.value
-        revenue = (grid_in - grid_out) * prices
+        revenue = (grid_in - grid_out) * self.daprice
         deg_cost = self.degradation_cost * discharge
 
         return pl.DataFrame({
             "step":             np.arange(self.n_steps),
-            "price":            prices,
+            "price":            self.daprice,
             "battery_charge":   charge,
-            "battery_discharge":discharge,
-            "soc":              soc,
+            "battery_discharge": discharge,
+            "soc":              self.soc.value,
             "grid_in":          grid_in,
             "grid_out":         grid_out,
             "revenue":          revenue,
@@ -288,9 +194,9 @@ class DAOptimisation:
 
     def __repr__(self) -> str:
         rows = [
-            ("Horizon",           f"{self.n_steps} steps"),
-            ("Price range",       f"{self.daprice.min():.2f} – {self.daprice.max():.2f} €/MWh"),
-            ("Degradation cost",  f"{self.degradation_cost} €/MWh"),
+            ("Horizon",          f"{self.n_steps} steps"),
+            ("Price range",      f"{self.daprice.min():.2f} – {self.daprice.max():.2f} €/MWh"),
+            ("Degradation cost", f"{self.degradation_cost} €/MWh"),
         ]
 
         if self.problem is not None:
@@ -306,19 +212,7 @@ class DAOptimisation:
         else:
             rows.append(("Status", "not solved"))
 
-        col_w = max(len(label) for label, _ in rows)
-        val_w = max(len(value) for _, value in rows)
-        sep = f"+{'-' * (col_w + 2)}+{'-' * (val_w + 2)}+"
-        fmt = f"| {{:<{col_w}}} | {{:<{val_w}}} |"
-
-        lines = [
-            sep,
-            fmt.format("DAOptimisation", ""),
-            sep,
-            *(fmt.format(label, value) for label, value in rows),
-            sep,
-        ]
-        return "\n".join(lines)
+        return self._repr_table("DAOptimisation", rows)
 
     def plot(self,
              figsize=None,
@@ -344,5 +238,3 @@ class DAOptimisation:
             show_pv=pv,
             show_demand=demand,
         )
-
-

@@ -1,15 +1,13 @@
-import polars as pl
-import numpy as np
 import cvxpy
 import matplotlib.pyplot as plt
+import numpy as np
+import polars as pl
 
 from bessopt.battery import Battery, BatteryConstraints
+from bessopt.problems.optimisation import BESSOptimisation
 
 
-M = 1e8
-
-
-class IntradayOptimisation:
+class IntradayOptimisation(BESSOptimisation):
     """Intraday redispatch of a battery position using imbalance bid/ask prices.
 
     Implements the rolling-intrinsic residual-trade methodology (Oeltz & Pfingsten
@@ -67,31 +65,22 @@ class IntradayOptimisation:
             product:             Time resolution of the traded product. '1h' for hourly
                                  (dt=1.0) or '15m' for quarter-hourly (dt=0.25). Defaults to '1h'.
         """
-        if product not in ('1h', '15m'):
-            raise ValueError(f"product must be '1h' or '15m', got '{product}'")
-
-        self.battery = battery
+        super().__init__(
+            battery=battery,
+            n_steps=len(price_long),
+            degradation_cost=degradation_cost,
+            battery_constraints=battery_constraints,
+            product=product,
+        )
         self.price_long = np.asarray(price_long, dtype=float)
         self.price_short = np.asarray(price_short, dtype=float)
-        self.degradation_cost = degradation_cost
-        self.battery_constraints = battery_constraints or BatteryConstraints()
-        self.product = product
-        self.dt = 1.0 if product == '1h' else 0.25
 
         # Current (DA) position – the "bar" quantities in the paper
         self.c_bar = battery_charge_schedule
         self.d_bar = battery_discharge_schedule
-        
-        self.n_steps = len(self.price_long)
-        self.constraints = []
-        self.problem = None
 
-
-    def update_status(self, soc = None, price_long = None, price_short  = None):
-        """
-        Update either battery soc or forecasts
-        """
-
+    def update_status(self, soc=None, price_long=None, price_short=None):
+        """Update either battery soc or forecasts."""
         pass
 
     # ------------------------------------------------------------------
@@ -99,38 +88,14 @@ class IntradayOptimisation:
     # ------------------------------------------------------------------
 
     def _build_variables(self) -> None:
-        """Declare all CVXPY decision variables.
-
-        Full new dispatch
-        -----------------
-        battery_charge     : non-negative, shape (n_steps,)  [MW]
-        battery_discharge  : non-negative, shape (n_steps,)  [MW]
-        battery_switch     : binary,       shape (n_steps,)
-        grid_in            : non-negative, shape (n_steps,)  [MW]
-        grid_out           : non-negative, shape (n_steps,)  [MW]
-        soc                : expression,   shape (n_steps,)  [MWh]
+        """Declare core variables plus auxiliary residual split variables.
 
         Residual split variables (linearisation of max())
         -------------------------------------------------
         _dc_pos / _dc_neg  : positive/negative part of (c_i − c̄_i)
         _dd_pos / _dd_neg  : positive/negative part of (d_i − d̄_i)
         """
-        self.battery_charge = cvxpy.Variable(self.n_steps, nonneg=True, name="battery_charge")
-        self.battery_discharge = cvxpy.Variable(self.n_steps, nonneg=True, name="battery_discharge")
-        self.battery_switch = cvxpy.Variable(self.n_steps, boolean=True, name="battery_switch")
-
-        self.grid_in = cvxpy.Variable(self.n_steps, nonneg=True, name="grid_in")
-        self.grid_out = cvxpy.Variable(self.n_steps, nonneg=True, name="grid_out")
-
-        self.soc = (
-            self.battery.soc
-            + cvxpy.cumsum(
-                self.battery_charge * self.battery.charge_efficiency
-                - self.battery_discharge / self.battery.discharge_efficiency
-            )
-        )
-
-        # Auxiliary split variables for the residual linearisation
+        super()._build_variables()
         self._dc_pos = cvxpy.Variable(self.n_steps, nonneg=True, name="dc_pos")
         self._dc_neg = cvxpy.Variable(self.n_steps, nonneg=True, name="dc_neg")
         self._dd_pos = cvxpy.Variable(self.n_steps, nonneg=True, name="dd_pos")
@@ -156,29 +121,16 @@ class IntradayOptimisation:
             delta_c  =  dc_pos - dc_neg,   dc_pos, dc_neg ≥ 0
             delta_d  =  dd_pos - dd_neg,   dd_pos, dd_neg ≥ 0
         """
-        self.constraints = [
-            # ── Battery power limits & mutual exclusion ──────────────────────
-            self.battery_charge <= self.battery_switch * self.battery.max_charge_power * self.dt,
-            self.battery_discharge <= (1 - self.battery_switch) * self.battery.max_discharge_power * self.dt,
-
+        self.constraints = self._build_battery_constraints()
+        self.constraints += [
             # ── Power balance (no PV / demand in intraday context) ────────────
             self.grid_in == self.battery_charge,
             self.grid_out == self.battery_discharge,
-
-            # ── State-of-charge bounds ────────────────────────────────────────
-            self.soc >= self.battery_constraints.min_soc * self.battery.capacity,
-            self.soc <= self.battery_constraints.max_soc * self.battery.capacity,
-
-            # ── Daily cycle constraint ────────────────────────────────────────
-            cvxpy.sum(self.battery_discharge) / self.battery.capacity <= self.battery_constraints.max_daily_cycles,
 
             # ── Residual split constraints (eqs. 7-8 linearisation) ──────────
             self.battery_charge - self.c_bar == self._dc_pos - self._dc_neg,
             self.battery_discharge - self.d_bar == self._dd_pos - self._dd_neg,
         ]
-
-        if self.battery_constraints.soc_end is not None:
-            self.constraints.append(self.soc[-1] >= self.battery_constraints.soc_end)
 
     def _build_objective(self) -> cvxpy.Maximize:
         """Construct the maximisation objective (eq. 10).
@@ -204,14 +156,6 @@ class IntradayOptimisation:
     # ------------------------------------------------------------------
     # Public interface
     # ------------------------------------------------------------------
-
-    def solve(self) -> None:
-        """Build and solve the intraday redispatch MILP."""
-        self._build_variables()
-        self._build_constraints()
-        objective = self._build_objective()
-        self.problem = cvxpy.Problem(objective, self.constraints)
-        self.problem.solve()
 
     @property
     def residual_charge(self) -> np.ndarray:
@@ -296,28 +240,16 @@ class IntradayOptimisation:
             if self.problem.status in ("optimal", "optimal_inaccurate"):
                 results = self.get_results()
                 rows += [
-                    ("Gross revenue",       f"{results['revenue'].sum():.2f} €"),
-                    ("Degradation cost",    f"{results['degradation_cost'].sum():.2f} €"),
-                    ("Net revenue",         f"{results['net_revenue'].sum():.2f} €"),
-                    ("Total res. charge",   f"{results['residual_charge'].sum():.2f} MWh"),
-                    ("Total res. discharge",f"{results['residual_discharge'].sum():.2f} MWh"),
+                    ("Gross revenue",        f"{results['revenue'].sum():.2f} €"),
+                    ("Degradation cost",     f"{results['degradation_cost'].sum():.2f} €"),
+                    ("Net revenue",          f"{results['net_revenue'].sum():.2f} €"),
+                    ("Total res. charge",    f"{results['residual_charge'].sum():.2f} MWh"),
+                    ("Total res. discharge", f"{results['residual_discharge'].sum():.2f} MWh"),
                 ]
         else:
             rows.append(("Status", "not solved"))
 
-        col_w = max(len(label) for label, _ in rows)
-        val_w = max(len(value) for _, value in rows)
-        sep = f"+{'-' * (col_w + 2)}+{'-' * (val_w + 2)}+"
-        fmt = f"| {{:<{col_w}}} | {{:<{val_w}}} |"
-
-        lines = [
-            sep,
-            fmt.format("IntradayOptimisation", ""),
-            sep,
-            *(fmt.format(label, value) for label, value in rows),
-            sep,
-        ]
-        return "\n".join(lines)
+        return self._repr_table("IntradayOptimisation", rows)
 
     def plot(self, figsize=None, return_fig: bool = False):
         """Visualise the intraday redispatch schedule.

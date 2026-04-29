@@ -10,7 +10,7 @@ In `documentation` you will find the papers I'm studying about the topic. In cas
 ## Purpose
 Learn OR by applying it in real world problems.
 
-In documentation folder you will find papers I studied and implemented.
+In papers folder you will find papers I studied and implemented.
 
 ## Roadmap 
 

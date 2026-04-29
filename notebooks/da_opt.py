@@ -17,7 +17,7 @@ def _():
 def _():
     import marimo as mo
     from bessopt.battery import Battery
-    from bessopt.da_opt import DAOptimisation
+    from bessopt.problems.dayahead import DAOptimisation
     import numpy as np
     import matplotlib.pyplot as plt
     import polars as pl
