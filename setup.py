@@ -5,7 +5,7 @@ with open("README.md", encoding="utf-8") as f:
 
 setup(
     name="bessopt",
-    version="0.1.3",
+    version="0.1.4",
     description="BESS optimisation: day-ahead and intraday battery dispatch using MILP",
     long_description=long_description,
     long_description_content_type="text/markdown",
