@@ -3,5 +3,5 @@
 
 
 from .battery import Battery, BatteryConstraints
-from .problems.dayahead import DAOptimisation
+from .problems.auction import AuctionOptimisation
 from .utility import Utility

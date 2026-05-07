@@ -34,7 +34,7 @@ class IntradayOptimisation(BESSOptimisation):
                          when selling (discharging) residuals.
         price_short:     Imbalance short price series [€/MWh] – cost paid when
                          buying (charging) residuals.
-        current_schedule:     current dispatch schedule from dayahead optimisation or previous intraday run.
+        pv:              Optional PV generation profile [MW], one value per time step.
         degradation_cost: Cost per MWh discharged [€/MWh]. Defaults to 0.
         n_steps:         Number of time steps (derived from price series length).
     """
@@ -44,9 +44,9 @@ class IntradayOptimisation(BESSOptimisation):
         battery: Battery,
         price_long: np.ndarray,
         price_short: np.ndarray,
-        current_schedule: pl.DataFrame,
         battery_charge_schedule: np.ndarray,
         battery_discharge_schedule: np.ndarray,
+        pv: np.ndarray = None,
         degradation_cost: float = 0.0,
         battery_constraints: BatteryConstraints = None,
         product: str = '1h',
@@ -56,32 +56,45 @@ class IntradayOptimisation(BESSOptimisation):
             battery:             Battery dataclass.
             price_long:          Imbalance long (bid) prices, one per time step [€/MWh].
             price_short:         Imbalance short (ask) prices, one per time step [€/MWh].
-            current_schedule:         Output of DAOptimisation.get_results(); must contain
-                                 columns ``battery_charge``, ``battery_discharge``,
-                                 ``grid_in``, ``grid_out``.
+            pv:                  Optional PV generation profile [MW], one value per time step.
             degradation_cost:    Throughput penalty [€/MWh discharged]. Defaults to 0.
             battery_constraints: Operational constraints (min/max SoC, terminal SoC,
                                  max daily cycles). Defaults to BatteryConstraints() if not provided.
             product:             Time resolution of the traded product. '1h' for hourly
                                  (dt=1.0) or '15m' for quarter-hourly (dt=0.25). Defaults to '1h'.
         """
+        n_steps = len(price_long)
+        if pv is not None and len(pv) != n_steps:
+            raise ValueError(
+                f"pv length ({len(pv)}) must match price_long length ({n_steps})"
+            )
+
         super().__init__(
             battery=battery,
-            n_steps=len(price_long),
+            n_steps=n_steps,
             degradation_cost=degradation_cost,
             battery_constraints=battery_constraints,
             product=product,
         )
         self.price_long = np.asarray(price_long, dtype=float)
         self.price_short = np.asarray(price_short, dtype=float)
+        self.pv = np.asarray(pv, dtype=float) if pv is not None else None
 
         # Current (DA) position – the "bar" quantities in the paper
         self.c_bar = battery_charge_schedule
         self.d_bar = battery_discharge_schedule
 
-    def update_status(self, soc=None, price_long=None, price_short=None):
+    def update_status(self, soc=None, price_long=None, price_short=None, pv=None):
         """Update either battery soc or forecasts."""
-        pass
+        self.battery.update_soc(value=soc)
+
+        if price_long is not None:
+            self.price_long = np.asarray(price_long, dtype=float)
+        if price_short is not None:
+            self.price_short = np.asarray(price_short, dtype=float)
+        if self.pv is not None and pv is not None:
+            self.pv = np.asarray(pv, dtype=float)
+        
 
     # ------------------------------------------------------------------
     # Build helpers
@@ -101,13 +114,25 @@ class IntradayOptimisation(BESSOptimisation):
         self._dd_pos = cvxpy.Variable(self.n_steps, nonneg=True, name="dd_pos")
         self._dd_neg = cvxpy.Variable(self.n_steps, nonneg=True, name="dd_neg")
 
+    def _build_power_balance_constraint(self):
+        """Build the nodal power balance constraint.
+
+        Total generation (grid imports + battery discharge + optional PV) must
+        equal total consumption (grid exports + battery charge) at every step.
+        """
+        power_generation = self.grid_out + self.battery_discharge
+        power_consumption = self.grid_in + self.battery_charge
+        if self.pv is not None:
+            power_generation += self.pv
+        return power_generation == power_consumption
+
     def _build_constraints(self) -> None:
         """Build all CVXPY constraints.
 
-        Physical battery constraints (identical to DAOptimisation)
-        -----------------------------------------------------------
+        Physical battery constraints (identical to AuctionOptimisation)
+        ---------------------------------------------------------------
         - Power limits with mutual-exclusion switch.
-        - Power balance: grid_in/out equal charge/discharge.
+        - Nodal power balance across grid, battery, and optional PV.
         - SoC within [min_soc * capacity, capacity].
         - Optional terminal SoC.
         - Daily cycle throughput limit.
@@ -123,9 +148,7 @@ class IntradayOptimisation(BESSOptimisation):
         """
         self.constraints = self._build_battery_constraints()
         self.constraints += [
-            # ── Power balance (no PV / demand in intraday context) ────────────
-            self.grid_in == self.battery_charge,
-            self.grid_out == self.battery_discharge,
+            self._build_power_balance_constraint(),
 
             # ── Residual split constraints (eqs. 7-8 linearisation) ──────────
             self.battery_charge - self.c_bar == self._dc_pos - self._dc_neg,
